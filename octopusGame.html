@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Niveau Bonus</title>
+    <style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: #180048; /* Ajout de la couleur de fond souhaitée */
+    }
+    canvas {
+        border-radius: 5px;
+        background-color: #9999FF;
+        display: block;
+    }
+    #scoreDisplay, #coinDisplay {
+        position: absolute;
+        top: 10px;
+        right: 30px;
+        color: white;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        font-family: Arial, sans-serif;
+        font-size: 16px;
+        z-index: 1000;
+    }
+    #coinDisplay {
+        top: 30px;
+        display: flex;
+        align-items: center;
+    }
+    #coinDisplay img {
+        margin-right: 5px;
+    }
+    @media (min-width: 768px) {
+        canvas {
+            width: 80%;
+            height: 80%;
+            margin: auto;
+        }
+    }
+</style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let player, obstacles, decorationObjects, coins, score, coinCount, gameSpeed, gameOver, gameStarted, lastTime, animationId, distanceTraveled, level, nextObstacleDelay, obstacleTimer, decorationTimer, coinTimer;
+        const groundHeight = 100;
+        let groundOffset = 0;
+        let powerUps = [];
+        const POWER_UP_TYPES = ['shield', 'magnet', 'slowMotion'];
+        let powerUpTimer = 0;
+        const POWER_UP_DELAY = 5; // Délai de base en secondes
+        const PLATFORM_MIN_HEIGHT = 250;
+        const COIN_HEIGHT_ABOVE_OBSTACLE = 90;
+        const PLATFORM_COIN_PROBABILITY = 0.7; // 70% de chance d'avoir une pièce sur une plateforme
+
+        const COIN_VERTICAL_OFFSET = 100; // Hauteur au-dessus de l'obstacle
+        const COIN_HORIZONTAL_OFFSET_PERCENTAGE = 0.5; // 0.5 signifie centré, ajustez entre 0 et 1
+
+        const playerImage = new Image();
+        const obstacleImage1 = new Image();
+        const obstacleImage2 = new Image();
+        const decorationImages = [];
+        const coinImage = new Image();
+        const groundImage = new Image();
+
+        const minDecorationDelay = 5;
+        const maxDecorationDelay = 15;
+
+        let clouds = [];
+        const CLOUD_WIDTH = 360; // La moitié de la largeur originale
+        const CLOUD_HEIGHT = 100; // La moitié de la hauteur originale
+        const CLOUD_SPAWN_RATE = 0.001; // Ajustez ce taux si nécessaire
+
+        let gameOverUIElements = [];
+
+        // Au début du script, ajoutez cette nouvelle variable pour l'image title
+        const titleImage = new Image();
+        titleImage.src = 'https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1727168567070x532521228293541000/title.png';
+
+        // Au début du script, ajoutez ces nouvelles variables pour les images des bonus
+        const shieldImage = new Image();
+        shieldImage.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1726752939262x751826881355043300/item_02.png";
+
+        const magnetImage = new Image();
+        magnetImage.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1726752936238x118100962048845800/item_01.png";
+
+        const slowMotionImage = new Image();
+        slowMotionImage.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1726752942507x451685884501350900/item_03.png";
+
+        // Ajoutez ces variables globales au début du script
+        const playerImages = [];
+        let currentPlayerImageIndex = 0;
+        let playerAnimationTimer = 0;
+        const PLAYER_ANIMATION_SPEED = 150; // Changez cette valeur pour ajuster la vitesse de l'animation (en millisecondes)
+
+        const playerDeathImage = new Image();
+        playerDeathImage.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1726752927216x734259662102956300/constantine_loose.png";
+
+        let imagesLoaded = false;
+        let loadingProgress = 0;
+
+        // Ajoutez cette variable globale
+        const LOADING_TIMEOUT = 10000; // 10 secondes
+
+        // Ajoutez ces variables globales au début du script
+        const cloudImage1 = new Image();
+        cloudImage1.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1726752947214x320390900359463200/nuage_01.png";
+        const cloudImage2 = new Image();
+        cloudImage2.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1726752950443x379562365327626100/nuage_02.png";
+
+        // Remplacez les déclarations de sons existantes par ceci :
+        const sounds = {
+            jump: new Audio('https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1727172426599x116671428525060080/jump1.mp3'),
+            death: new Audio('https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1727172435040x479669508792396540/gettinghitbyennemy.mp3'),
+            bonus: new Audio('https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1727173449435x339023696512963140/bonus2.mp3'),
+            coin: new Audio('https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1727173463224x625068585631116900/coin.mp3'),
+            background: new Audio('https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1727173604621x749038386532012900/gamemusic.mp3')
+        };
+
+        // Fonction pour précharger les sons
+        function preloadSounds() {
+            return Promise.all(Object.values(sounds).map(sound => {
+                return new Promise((resolve, reject) => {
+                    sound.addEventListener('canplaythrough', resolve, { once: true });
+                    sound.addEventListener('error', reject);
+                    sound.load();
+                });
+            }));
+        }
+
+        // Modifiez la fonction playSound pour utiliser le nouvel objet sounds
+        function playSound(soundName) {
+            if (gameOver && soundName !== 'death') return;
+            const sound = sounds[soundName];
+            if (sound) {
+                sound.currentTime = 0;
+                sound.play().catch(error => console.warn('Erreur lors de la lecture du son:', error));
+            }
+        }
+
+        // Modifiez la fonction playBackgroundMusic
+        function playBackgroundMusic() {
+            sounds.background.loop = true;
+            sounds.background.play().catch(error => {
+                console.warn('La musique de fond n\'a pas pu être jouée automatiquement:', error);
+            });
+        }
+
+        // Modifiez la fonction stopBackgroundMusic
+        function stopBackgroundMusic() {
+            sounds.background.pause();
+            sounds.background.currentTime = 0;
+        }
+
+        // Ajoutez ces variables globales au début du script
+        let gameStartTime = 0;
+        const OBSTACLE_DELAY = 2000; // 2 secondes en millisecondes
+
+        // Ajoutez ces variables globales au début du script
+        const platformBlockImage1 = new Image();
+        platformBlockImage1.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1725460932396x971017793063785100/bloc.png";
+
+        const platformBlockImage2 = new Image();
+        platformBlockImage2.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1725547021403x210351525561305540/bloc2.png";
+
+        // Ajoutez ces variables globales au début du script
+        let activePowerUps = [];
+        let magnetIcon = {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 40,
+            active: false
+        };
+
+        function init() {
+            resizeCanvas();
+            const isMobile = window.innerWidth < 768;
+            player = {
+                x: isMobile ? 50 : canvas.width / 2,
+                y: canvas.height - groundHeight - 75,
+                width: 75,
+                height: 75,
+                speed: 5,
+                jumping: false,
+                doubleJumping: false,
+                jumpCount: 0,
+                velocityY: 0,
+                gravity: 0.8,
+                jumpPower: 17,
+                slowMotion: false
+            };
+
+            obstacles = [];
+            decorationObjects = [];
+            coins = [];
+            score = 0;
+            coinCount = 0;
+            gameSpeed = 6; // Changé de 5 à 6 pour correspondre à la nouvelle vitesse initiale
+            level = 1;
+            gameOver = false;
+            gameStarted = false;
+            lastTime = 0;
+            distanceTraveled = 0;
+            obstacleTimer = 0;
+            decorationTimer = getRandomDecorationDelay();
+            coinTimer = 0;
+            nextObstacleDelay = getRandomObstacleDelay();
+
+            playerImages[0] = new Image();
+            playerImages[0].src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1726752906024x250782177699551360/constantine_pos1.png";
+            playerImages[1] = new Image();
+            playerImages[1].src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1726752909444x931003187149509900/constantine_pos2.png";
+            playerImages[2] = new Image();
+            playerImages[2].src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1726752912932x917837568100063600/constantine_pos3.png";
+            obstacleImage1.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1727167247376x749244790261365200/spikeblok1.png";
+            obstacleImage2.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1727167253001x161428675404486000/spikeblok2.png";
+            coinImage.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1725529817149x554071334419480060/hud_coins.png";
+            groundImage.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1725547042945x642275886026215000/sol.png";
+
+            const decorationImage1 = new Image();
+            decorationImage1.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1725474388615x317483974374978000/Eolienne.png";
+            const decorationImage2 = new Image();
+            decorationImage2.src = "https://ee7f7462c17b26029065f302ec8e9b48.cdn.bubble.io/f1725474395508x110746818308909760/Panneau_solaire.png";
+
+            decorationImages.push({
+                img: decorationImage1,
+                width: 199,
+                height: 312
+            });
+            decorationImages.push({
+                img: decorationImage2,
+                width: 169,
+                height: 118
+            });
+
+            clouds = []; // Initialiser le tableau des nuages
+
+            // Modifiez la fonction init pour inclure gameStartTime
+            Promise.all([loadImages(), preloadSounds()]).then(() => {
+                imagesLoaded = true;
+                if (animationId) cancelAnimationFrame(animationId);
+                gameLoop(0);
+                playBackgroundMusic();
+            }).catch(error => {
+                console.error('Erreur lors du chargement des ressources:', error);
+                alert('Une erreur est survenue lors du chargement des ressources. Veuillez rafraîchir la page.');
+            });
+        }
+
+        function resizeCanvas() {
+            if (window.innerWidth >= 768) {
+                canvas.width = window.innerWidth * 0.8;
+                canvas.height = window.innerHeight * 0.8;
+            } else {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function loadImages() {
+            const imagesToLoad = [
+                ...playerImages,
+                obstacleImage1,
+                obstacleImage2,
+                groundImage,
+                ...decorationImages.map(img => img.img),
+                coinImage,
+                shieldImage,
+                magnetImage,
+                slowMotionImage,
+                cloudImage1,
+                cloudImage2
+            ];
+
+            const totalImages = imagesToLoad.length;
+            let loadedImages = 0;
+
+            return Promise.all(imagesToLoad.map(img => {
+                return new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        console.warn(`Image loading timed out: ${img.src}`);
+                        loadedImages++;
+                        loadingProgress = loadedImages / totalImages;
+                        resolve();
+                    }, LOADING_TIMEOUT);
+
+                    if (img.complete) {
+                        clearTimeout(timeout);
+                        loadedImages++;
+                        loadingProgress = loadedImages / totalImages;
+                        resolve();
+                    } else {
+                        img.onload = () => {
+                            clearTimeout(timeout);
+                            loadedImages++;
+                            loadingProgress = loadedImages / totalImages;
+                            resolve();
+                        };
+                        img.onerror = () => {
+                            clearTimeout(timeout);
+                            console.error(`Failed to load image: ${img.src}`);
+                            img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='; // Image de 1x1 pixel transparente
+                            loadedImages++;
+                            loadingProgress = loadedImages / totalImages;
+                            resolve();
+                        };
+                    }
+                });
+            }));
+        }
+
+        function generateObstacle() {
+            const blockWidth = 40;
+            const blockHeight = 40;
+            const maxStackHeight = Math.min(4, 3 + Math.floor(level / 5)); // Augmente progressivement avec le niveau
+            const stackCount = Math.floor(Math.random() * 2) + 1;
+        
+            let obstacle = {
+                x: canvas.width,
+                stacks: [],
+                type: 'obstacle',
+                height: 0 // Ajout d'une propriété pour suivre la hauteur totale
+            };
+        
+            for (let i = 0; i < stackCount; i++) {
+                const stackHeight = Math.floor(Math.random() * maxStackHeight) + 1;
+                let stack = [];
+                for (let j = 0; j < stackHeight; j++) {
+                    stack.push({
+                        width: blockWidth,
+                        height: blockHeight,
+                        image: Math.random() > 0.5 ? obstacleImage1 : obstacleImage2
+                    });
+                }
+                obstacle.stacks.push(stack);
+                obstacle.height = Math.max(obstacle.height, stackHeight * blockHeight);
+            }
+        
+            obstacle.isMoving = Math.random() < 0.3; // 30% de chance d'être un obstacle mobile
+            obstacle.verticalSpeed = obstacle.isMoving ? (Math.random() * 2 - 1) * 2 : 0; // Vitesse verticale aléatoire
+        
+            obstacles.push(obstacle);
+        
+            // Générer une pièce seulement si l'obstacle a plus d'un bloc de hauteur
+            if (obstacle.height > blockHeight && Math.random() > 0.5) {
+                generateCoinAboveObstacle(obstacle);
+            }
+        }
+        function generatePlatform() {
+            const blockWidth = 40;
+            const blockHeight = 40;
+            const minPlatformLength = 6;
+            const maxPlatformLength = 12;
+            const platformLength = Math.floor(Math.random() * (maxPlatformLength - minPlatformLength + 1)) + minPlatformLength;
+            
+            const minHeight = Math.max(PLATFORM_MIN_HEIGHT, canvas.height - groundHeight - player.height * 3);
+            const maxHeight = canvas.height - groundHeight - blockHeight * 2;
+            const platformY = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+        
+            let platform = {
+                x: canvas.width,
+                y: platformY,
+                width: platformLength * blockWidth,
+                height: blockHeight,
+                blocks: [],
+                type: 'platform'
+            };
+        
+            for (let i = 0; i < platformLength; i++) {
+                platform.blocks.push({
+                    width: blockWidth,
+                    height: blockHeight,
+                    image: Math.random() > 0.5 ? platformBlockImage1 : platformBlockImage2
+                });
+            }
+        
+            if (Math.random() < PLATFORM_COIN_PROBABILITY) {
+                generateCoinsOnPlatform(platform);
+            }
+        
+            obstacles.push(platform);
+        }
+        
+        function generateCoinsOnPlatform(platform) {
+            const coinCount = Math.floor(Math.random() * 3) + 1; // 1 à 3 pièces
+            const platformMiddle = platform.width / 2;
+            const coinSpacing = platform.width / (coinCount + 1);
+        
+            for (let i = 1; i <= coinCount; i++) {
+                const coinX = platform.x + (i * coinSpacing) - 10; // 10 est la moitié de la largeur de la pièce
+                const coinY = platform.y - 40; // 40 pixels au-dessus de la plateforme
+                
+                coins.push({
+                    x: coinX,
+                    y: coinY,
+                    width: 20,
+                    height: 20
+                });
+            }
+        }
+
+        function generateCoinAboveObstacle(obstacle) {
+            const obstacleWidth = obstacle.stacks[0][0].width * obstacle.stacks.length;
+            
+            // Calculer la position horizontale de la pièce
+            const coinX = obstacle.x + (obstacleWidth * COIN_HORIZONTAL_OFFSET_PERCENTAGE) - 10; // 10 est la moitié de la largeur de la pièce
+            
+            // Calculer la position verticale de la pièce
+            const coinY = canvas.height - groundHeight - obstacle.height - COIN_VERTICAL_OFFSET;
+            
+            coins.push({
+                x: coinX,
+                y: coinY,
+                width: 20,
+                height: 20
+            });
+        }
+
+        function generateDecoration() {
+            const decoration = decorationImages[Math.floor(Math.random() * decorationImages.length)];
+            decorationObjects.push({
+                x: canvas.width,
+                y: canvas.height - groundHeight - decoration.height,
+                width: decoration.width,
+                height: decoration.height,
+                img: decoration.img
+            });
+        }
+
+        function drawGround() {
+            const blockWidth = 40;
+            const blocksPerRow = Math.ceil(canvas.width / blockWidth) + 1;
+
+            for (let i = 0; i < blocksPerRow; i++) {
+                ctx.drawImage(
+                    groundImage, 
+                    groundOffset + i * blockWidth, 
+                    canvas.height - groundHeight, 
+                    blockWidth, 
+                    groundHeight
+                );
+            }
+        }
+
+        function updateObstacles(deltaTime) {
+            const isMobile = window.innerWidth < 768;
+            const playerOffsetX = isMobile ? 0 : canvas.width / 3 - player.x - player.width / 2;
+
+            for (let i = 0; i < obstacles.length; i++) {
+                if (isMobile) {
+                    obstacles[i].x -= gameSpeed * (deltaTime / 16);
+                } else {
+                    obstacles[i].x -= (gameSpeed * (deltaTime / 16) + playerOffsetX);
+                }
+                
+                if (obstacles[i].isMoving) {
+                    obstacles[i].y += obstacles[i].verticalSpeed * (deltaTime / 16);
+                    
+                    // Inverser la direction si l'obstacle atteint les limites
+                    if (obstacles[i].y < 0 || obstacles[i].y + obstacles[i].height > canvas.height - groundHeight) {
+                        obstacles[i].verticalSpeed *= -1;
+                    }
+                }
+                
+                if (obstacles[i].type === 'obstacle') {
+                    for (let stack of obstacles[i].stacks) {
+                        for (let j = 0; j < stack.length; j++) {
+                            let block = stack[j];
+                            let blockX = obstacles[i].x;
+                            let blockY = canvas.height - groundHeight - (j + 1) * block.height;
+                            
+                            if (detectCollision(player, {
+                                x: blockX,
+                                y: blockY,
+                                width: block.width,
+                                height: block.height,
+                                type: 'obstacle'
+                            })) {
+                                if (player.shield) {
+                                    // Si le joueur a un bouclier, on détruit l'obstacle
+                                    obstacles.splice(i, 1);
+                                    i--; // Ajustement de l'index car on a retiré un élément
+                                    // Effet visuel pour montrer la destruction de l'obstacle
+                                    createObstacleDestructionEffect(blockX, blockY);
+                                    break; // Sort de la boucle des blocks
+                                } else {
+                                    if (!gameOver) {
+                                        playSound('death'); // Jouer le son de la mort
+                                        stopBackgroundMusic(); // Arrêter la musique de fond
+                                        gameOver = true;
+                                    }
+                                }
+                            }
+                        }
+                        if (obstacles[i] === undefined) break; // Sort de la boucle des stacks si l'obstacle a été détruit
+                    }
+                }
+            }
+            obstacles = obstacles.filter(obstacle => obstacle.x + (obstacle.width || obstacle.stacks[0][0].width) > 0);
+        }
+
+        function createObstacleDestructionEffect(x, y) {
+            // Ici, vous pouvez ajouter un effet visuel, comme des particules
+            // Pour cet exemple, nous allons simplement dessiner un cercle qui disparaît
+            let radius = 30;
+            let opacity = 1;
+            
+            function drawEffect() {
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+                ctx.fill();
+                
+                radius += 2;
+                opacity -= 0.05;
+                
+                if (opacity > 0) {
+                    requestAnimationFrame(drawEffect);
+                }
+            }
+            
+            drawEffect();
+        }
+        
+        function updateDecorations(deltaTime) {
+            const isMobile = window.innerWidth < 768;
+            const playerOffsetX = isMobile ? 0 : canvas.width / 3 - player.x - player.width / 2;
+
+            for (let i = 0; i < decorationObjects.length; i++) {
+                if (isMobile) {
+                    decorationObjects[i].x -= gameSpeed * (deltaTime / 16);
+                } else {
+                    decorationObjects[i].x -= (gameSpeed * (deltaTime / 16) + playerOffsetX);
+                }
+            }
+            decorationObjects = decorationObjects.filter(deco => deco.x + deco.width > 0);
+        }
+
+        function updateCoins(deltaTime) {
+            const isMobile = window.innerWidth < 768;
+            const playerOffsetX = isMobile ? 0 : canvas.width / 3 - player.x - player.width / 2;
+
+            for (let i = coins.length - 1; i >= 0; i--) {
+                if (player.magnet) {
+                    // Effet d'attraction vers l'aimant
+                    let dx = magnetIcon.x - coins[i].x;
+                    let dy = magnetIcon.y - coins[i].y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+                    if (distance < 200) { // Rayon d'attraction
+                        coins[i].x += dx * 0.1;
+                        coins[i].y += dy * 0.1;
+                    }
+                }
+                if (isMobile) {
+                    coins[i].x -= gameSpeed * (deltaTime / 16);
+                } else {
+                    coins[i].x -= (gameSpeed * (deltaTime / 16) + playerOffsetX);
+                }
+                if (detectCollision(player, coins[i])) {
+                    playSound('coin');
+                    coinCount++;
+                    coins.splice(i, 1);
+                } else if (coins[i].x + coins[i].width < 0) {
+                    coins.splice(i, 1);
+                }
+            }
+        }
+        function updatePlayer(deltaTime) {
+            // Utiliser une interpolation pour un mouvement plus fluide
+            const interpolationFactor = 0.8;
+            player.velocityY += player.gravity * (deltaTime / 16);
+            
+            let newY = player.y + player.velocityY * (deltaTime / 16);
+            let onPlatform = false;
+
+            for (let obstacle of obstacles) {
+                if (obstacle.type === 'platform') {
+                    if (player.y + player.height <= obstacle.y &&
+                        newY + player.height > obstacle.y &&
+                        player.x < obstacle.x + obstacle.width &&
+                        player.x + player.width > obstacle.x) {
+                        newY = obstacle.y - player.height;
+                        player.velocityY = 0;
+                        onPlatform = true;
+                        break;
+                    }
+                }
+            }
+
+            player.y = player.y * (1 - interpolationFactor) + newY * interpolationFactor;
+
+            if (player.y > canvas.height - groundHeight - player.height) {
+                player.y = canvas.height - groundHeight - player.height;
+                onPlatform = true;
+            }
+
+            if (onPlatform) {
+                resetJump();
+            }
+
+            if (player.y < 0) {
+                player.y = 0;
+                player.velocityY = 0;
+            }
+
+            const isMobile = window.innerWidth < 768;
+            if (!isMobile) {
+                // Sur ordinateur, le joueur reste au 1/3 gauche de l'écran
+                player.x = canvas.width / 3 - player.width / 2;
+            } else {
+                // Sur mobile, le joueur peut se déplacer comme avant
+                const playerRadius = player.width / 2;
+                if (player.x < -playerRadius) {
+                    player.x = -playerRadius;
+                } else if (player.x + player.width > canvas.width + playerRadius) {
+                    player.x = canvas.width - player.width + playerRadius;
+                }
+            }
+
+            // Mise à jour de l'animation du joueur
+            playerAnimationTimer += deltaTime;
+            if (playerAnimationTimer >= PLAYER_ANIMATION_SPEED) {
+                currentPlayerImageIndex = (currentPlayerImageIndex + 1) % playerImages.length;
+                playerAnimationTimer = 0;
+            }
+        }
+
+        function resetJump() {
+            player.jumping = false;
+            player.doubleJumping = false;
+            player.jumpCount = 0;
+            player.velocityY = 0;
+        }
+
+        function drawStaticText() {
+            const leftMargin = 10;
+            const rightMargin = canvas.width - 10;
+            const topMargin = 30;
+            const lineHeight = 25;
+        
+            ctx.font = '16px Arial';
+            ctx.fillStyle = 'white';
+            
+            // Texte à gauche
+            ctx.textAlign = 'left';
+            ctx.fillText('POWER-UPS', leftMargin, topMargin);
+            ctx.fillText('LEVEL: ' + level, leftMargin, topMargin + lineHeight);
+            
+            // Texte à droite
+            ctx.textAlign = 'right';
+            ctx.fillText('SCORE: ' + score, rightMargin, topMargin);
+            
+            // Dessiner le compteur de pièces
+            const coinText = 'COINS: ' + coinCount;
+            ctx.fillText(coinText, rightMargin, topMargin + lineHeight);
+            
+            // Dessiner l'icône de pièce
+            const coinIconSize = 20;
+            const coinIconX = rightMargin - ctx.measureText(coinText).width - coinIconSize - 5;
+            const coinIconY = topMargin + lineHeight - coinIconSize + 5;
+            ctx.drawImage(coinImage, coinIconX, coinIconY, coinIconSize, coinIconSize);
+        }
+    
+        function drawPlayer() {
+            if (!imagesLoaded || !playerImages[currentPlayerImageIndex].complete) {
+                // Si les images ne sont pas chargées, dessinez un rectangle à la place
+                ctx.fillStyle = 'red';
+                ctx.fillRect(player.x, player.y, player.width, player.height);
+                return;
+            }
+
+            ctx.save();
+            ctx.beginPath();
+            const radius = player.width / 2 * 1.2; // Augmentation du rayon de 20%
+            ctx.arc(player.x + player.width / 2, player.y + player.height / 2, radius, 0, Math.PI * 2);
+            ctx.clip();
+            
+            // Ajustement de la taille et de la position de l'image pour correspondre au nouveau cercle
+            const imageSize = player.width * 1.1;
+            const imageX = player.x - (imageSize - player.width) / 2;
+            const imageY = player.y - (imageSize - player.height) / 2;
+            
+            if (gameOver) {
+                ctx.drawImage(playerDeathImage, imageX, imageY, imageSize, imageSize);
+            } else {
+                ctx.drawImage(playerImages[currentPlayerImageIndex], imageX, imageY, imageSize, imageSize);
+            }
+            ctx.restore();
+        }
+
+        function drawObstacles() {
+            for (let obstacle of obstacles) {
+                if (obstacle.type === 'platform') {
+                    for (let i = 0; i < obstacle.blocks.length; i++) {
+                        let block = obstacle.blocks[i];
+                        ctx.drawImage(block.image, obstacle.x + i * block.width, obstacle.y, block.width, block.height);
+                    }
+                } else {
+                    for (let s = 0; s < obstacle.stacks.length; s++) {
+                        let stack = obstacle.stacks[s];
+                        for (let i = 0; i < stack.length; i++) {
+                            let block = stack[i];
+                            let x = obstacle.x + s * block.width;
+                            let y = canvas.height - groundHeight - (i + 1) * block.height;
+                            ctx.drawImage(block.image, x, y, block.width, block.height);
+                        }
+                    }
+                }
+            }
+        }
+
+        function drawDecorations() {
+            for (let decoration of decorationObjects) {
+                ctx.drawImage(decoration.img, decoration.x, decoration.y, decoration.width, decoration.height);
+            }
+        }
+
+        function drawCoins() {
+            for (let coin of coins) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(coin.x + coin.width / 2, coin.y + coin.height / 2, coin.width / 2, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.drawImage(coinImage, coin.x, coin.y, coin.width, coin.height);
+                
+                // Ajout d'un effet de brillance
+                const gradient = ctx.createRadialGradient(
+                    coin.x + coin.width / 2, coin.y + coin.height / 2, 0,
+                    coin.x + coin.width / 2, coin.y + coin.height / 2, coin.width / 2
+                );
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+
+        function generatePowerUp() {
+            const type = POWER_UP_TYPES[Math.floor(Math.random() * POWER_UP_TYPES.length)];
+            const minHeight = canvas.height - groundHeight - 300;
+            const maxHeight = canvas.height - groundHeight - 100;
+            
+            powerUps.push({
+                x: canvas.width,
+                y: Math.random() * (maxHeight - minHeight) + minHeight,
+                width: 40,
+                height: 40,
+                type: type
+            });
+        }
+        function updatePowerUps(deltaTime) {
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                powerUps[i].x -= gameSpeed * (deltaTime / 16);
+                
+                // Vérifier la collision avec les obstacles
+                let collisionWithObstacle = false;
+                for (let obstacle of obstacles) {
+                    if (detectCollision(powerUps[i], obstacle)) {
+                        collisionWithObstacle = true;
+                        break;
+                    }
+                }
+                
+                if (collisionWithObstacle) {
+                    powerUps.splice(i, 1);
+                    continue;
+                }
+                
+                if (detectCollision(player, powerUps[i])) {
+                    activatePowerUp(powerUps[i].type);
+                    powerUps.splice(i, 1);
+                } else if (powerUps[i].x + powerUps[i].width < 0) {
+                    powerUps.splice(i, 1);
+                }
+            }
+        }
+
+        // Fonction pour activer un power-up
+        function activatePowerUp(type) {
+            // Vérifier si le power-up est déjà actif
+            if (activePowerUps.some(powerUp => powerUp.type === type)) {
+                return;
+            }
+
+            playSound('bonus');
+            switch(type) {
+                case 'shield':
+                    player.shield = true;
+                    activePowerUps.push({ type: 'shield', duration: 8000 });
+                    setTimeout(() => { 
+                        player.shield = false; 
+                        activePowerUps = activePowerUps.filter(powerUp => powerUp.type !== 'shield');
+                        console.log('Bouclier désactivé');
+                    }, 8000);
+                    break;
+                case 'magnet':
+                    player.magnet = true;
+                    magnetIcon.active = true;
+                    activePowerUps.push({ type: 'magnet', duration: 8000 });
+                    setTimeout(() => { 
+                        player.magnet = false; 
+                        magnetIcon.active = false;
+                        activePowerUps = activePowerUps.filter(powerUp => powerUp.type !== 'magnet');
+                        console.log('Aimant désactivé');
+                    }, 8000);
+                    break;
+                case 'slowMotion':
+                    player.slowMotion = true;
+                    activePowerUps.push({ type: 'slowMotion', duration: 5000 });
+                    setTimeout(() => { 
+                        player.slowMotion = false;
+                        activePowerUps = activePowerUps.filter(powerUp => powerUp.type !== 'slowMotion');
+                        console.log('Ralenti désactivé');
+                    }, 5000);
+                    break;
+            }
+            console.log(`Power-up ${type} activé`);
+        }
+
+        // Fonction pour dessiner les power-ups
+        function drawPowerUps() {
+            for (let powerUp of powerUps) {
+                let powerUpImage;
+                switch(powerUp.type) {
+                    case 'shield':
+                        powerUpImage = shieldImage;
+                        break;
+                    case 'magnet':
+                        powerUpImage = magnetImage;
+                        break;
+                    case 'slowMotion':
+                        powerUpImage = slowMotionImage;
+                        break;
+                }
+                
+                // Dessiner l'image du power-up directement, sans cercle
+                ctx.drawImage(powerUpImage, powerUp.x, powerUp.y, powerUp.width, powerUp.height);
+            }
+        }
+
+        function drawActivePowerUps() {
+            const iconSize = 30;
+            const padding = 5;
+            let x = player.x - iconSize - padding; // Position à gauche du joueur
+            let y = player.y + player.height / 2 - iconSize / 2; // Centré verticalement par rapport au joueur
+
+            activePowerUps.forEach(powerUp => {
+                let powerUpImage;
+                switch(powerUp.type) {
+                    case 'shield':
+                        powerUpImage = shieldImage;
+                        break;
+                    case 'magnet':
+                        powerUpImage = magnetImage;
+                        magnetIcon.x = x;
+                        magnetIcon.y = y;
+                        ctx.drawImage(magnetImage, magnetIcon.x, magnetIcon.y, magnetIcon.width, magnetIcon.height);
+                        break;
+                    case 'slowMotion':
+                        powerUpImage = slowMotionImage;
+                        break;
+                }
+                
+                if (powerUp.type !== 'magnet') {
+                    ctx.drawImage(powerUpImage, x, y, iconSize, iconSize);
+                    y += iconSize + padding; // Empiler les power-ups verticalement
+                }
+            });
+        }
+
+        function updateGameSpeed(deltaTime) {
+            const isMobile = window.innerWidth < 768;
+            const baseSpeed = isMobile ? 4 : 6; // Vitesse de base réduite sur mobile
+            const maxSpeedIncrease = isMobile ? 5 : 8; // Augmentation max de vitesse réduite sur mobile
+            const distanceForMaxSpeed = 12000;
+
+            const speedIncrease = Math.log(1 + (distanceTraveled / distanceForMaxSpeed)) * maxSpeedIncrease;
+            let newGameSpeed = baseSpeed + speedIncrease;
+
+            newGameSpeed = Math.min(newGameSpeed, baseSpeed + maxSpeedIncrease);
+
+            // Appliquer le ralentissement si actif
+            if (player.slowMotion) {
+                newGameSpeed *= 0.75;
+            }
+
+            gameSpeed = newGameSpeed;
+        }
+
+        function updateScore(deltaTime) {
+            distanceTraveled += gameSpeed * (deltaTime / 16);
+            score = Math.floor(distanceTraveled / 10);
+            updateLevel();
+        }
+
+        function updateLevel() {
+            const newLevel = Math.floor(score / 500) + 1;
+            if (newLevel > level) {
+                level = newLevel;
+                // Vous pouvez ajouter ici des effets ou des notifications pour le changement de niveau
+                console.log("Nouveau niveau atteint :", level);
+            }
+        }
+
+        function generateCloud() {
+            const cloudType = Math.random() < 0.5 ? cloudImage1 : cloudImage2;
+            const scaleFactor = 0.3 + Math.random() * 0.2; // Taille aléatoire entre 30% et 50% de la taille originale
+            const width = CLOUD_WIDTH * scaleFactor;
+            const height = CLOUD_HEIGHT * scaleFactor;
+            
+            clouds.push({
+                x: canvas.width,
+                y: Math.random() * (canvas.height - height - groundHeight),
+                width: width,
+                height: height,
+                speed: 1,
+                type: cloudType
+            });
+
+            console.log('Nuage généré:', clouds[clouds.length - 1]); // Ajout de log
+        }
+
+        function updateClouds(deltaTime) {
+            const isMobile = window.innerWidth < 768;
+            const playerOffsetX = isMobile ? 0 : canvas.width / 3 - player.x - player.width / 2;
+
+            for (let i = clouds.length - 1; i >= 0; i--) {
+                if (isMobile) {
+                    clouds[i].x -= clouds[i].speed * (deltaTime / 16);
+                } else {
+                    clouds[i].x -= (clouds[i].speed * (deltaTime / 16) + playerOffsetX * 0.1); // Ralentir le déplacement des nuages
+                }
+                
+                if (clouds[i].x + clouds[i].width < 0) {
+                    clouds.splice(i, 1);
+                }
+            }
+
+            console.log('Nuages mis à jour:', clouds); // Ajout de log
+        }
+
+        function drawClouds() {
+            for (let cloud of clouds) {
+                ctx.drawImage(cloud.type, cloud.x, cloud.y, cloud.width, cloud.height);
+            }
+        }
+
+        function drawStartScreen() {
+            // Changement de la couleur de fond à #9999FF
+            ctx.fillStyle = '#9999FF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Déterminer si l'appareil est mobile
+            const isMobile = window.innerWidth < 768;
+
+            // Ajuster la taille de la police en fonction de l'appareil
+            const subtitleFontSize = isMobile ? 16 : 20;
+            const textFontSize = isMobile ? 14 : 18;
+
+            // Dessiner l'image du titre
+            const imageWidth = isMobile ? canvas.width * 0.8 : canvas.width * 0.3;
+            const imageHeight = imageWidth * (titleImage.height / titleImage.width);
+            const imageX = (canvas.width - imageWidth) / 2;
+            const imageY = 20;
+            ctx.drawImage(titleImage, imageX, imageY, imageWidth, imageHeight);
+
+            ctx.font = `${subtitleFontSize}px Arial`;
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Règles du jeu :', canvas.width / 2, imageY + imageHeight + 30);
+
+            const rules = [
+                "- Évitez les obstacles en sautant (double saut possible)",
+                "- Collectez les pièces pour augmenter votre score",
+                "- Survivez le plus longtemps possible",
+                "- Évitez les piques !"
+            ];
+
+            ctx.font = `${textFontSize}px Arial`;
+            ctx.textAlign = 'left';
+            const rulesX = canvas.width / 2 - 150;
+            rules.forEach((rule, index) => {
+                const y = imageY + imageHeight + 70 + index * (isMobile ? 25 : 30);
+                ctx.fillText(rule, rulesX, y);
+            });
+
+            // Ajout d'un espace supplémentaire avant la section "Bonus"
+            const bonusYOffset = imageY + imageHeight + (isMobile ? 190 : 220);
+
+            ctx.font = `${subtitleFontSize}px Arial`;
+            ctx.fillText('Bonus :', canvas.width / 2, bonusYOffset);
+
+            const bonuses = [
+                { text: "Bouclier : Invincibilité temporaire", image: shieldImage },
+                { text: "Aimant : Attire les pièces à proximité", image: magnetImage },
+                { text: "Ralenti : Ralentit le jeu temporairement", image: slowMotionImage }
+            ];
+
+            const iconSize = isMobile ? 25 : 30;
+            const iconTextSpacing = 10; // Espacement entre l'icône et le texte
+            const lineHeight = isMobile ? 35 : 40;
+
+            ctx.font = `${textFontSize}px Arial`;
+            ctx.textAlign = 'left'; // Aligner le texte à gauche
+
+            bonuses.forEach((bonus, index) => {
+                const y = bonusYOffset + 40 + index * lineHeight; // Ajusté pour commencer plus bas
+                const iconX = canvas.width / 2 - 150; // Position de l'icône à gauche
+                const textX = iconX + iconSize + iconTextSpacing; // Position du texte après l'icône
+
+                ctx.drawImage(bonus.image, iconX, y - iconSize / 2, iconSize, iconSize);
+                ctx.fillText(bonus.text, textX, y);
+            });
+
+            ctx.textAlign = 'center'; // Remettre l'alignement du texte au centre pour le dernier message
+            ctx.font = `bold ${subtitleFontSize}px Arial`;
+            ctx.fillText('Cliquez pour démarrer', canvas.width / 2, canvas.height - 50);
+        }
+        function gameLoop(timestamp) {
+            if (!imagesLoaded) {
+                // Afficher l'écran de chargement
+                ctx.fillStyle = '#9999FF';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'white';
+                ctx.font = '24px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`Chargement... ${Math.round(loadingProgress * 100)}%`, canvas.width / 2, canvas.height / 2);
+                requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            if (gameOver) {
+                playSound('death');
+                setTimeout(() => {
+                    drawGameOver();
+                    bubble_fn_score(score);
+                    bubble_fn_coinCount(coinCount);
+                }, 2000); // Délai de 2 secondes avant d'afficher l'écran de game over
+                return;
+            }
+
+            if (!gameStarted) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawStartScreen();
+                animationId = requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            let deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Mise à jour des éléments du jeu
+            updateGameState(deltaTime);
+
+            // Dessin des éléments du jeu
+            drawGameElements();
+
+            // Gestion des timers
+            handleTimers(deltaTime);
+
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        function updateGameState(deltaTime) {
+            groundOffset = (groundOffset - gameSpeed * (deltaTime / 16)) % 40;
+            updateScore(deltaTime);
+            updateLevel();
+            updateGameSpeed(deltaTime);
+            updateObstacles(deltaTime);
+            updateDecorations(deltaTime);
+            updateCoins(deltaTime);
+            updatePlayer(deltaTime);
+            updatePowerUps(deltaTime);
+            updateClouds(deltaTime);
+
+            // Mise à jour des power-ups actifs
+            activePowerUps = activePowerUps.filter(powerUp => {
+                powerUp.duration -= deltaTime;
+                return powerUp.duration > 0;
+            });
+        }
+
+        function drawGameElements() {
+            drawGround();
+            drawClouds();
+            drawDecorations();
+            drawObstacles();
+            drawCoins();
+            drawPowerUps();
+            drawPlayer();
+            drawActivePowerUps();
+            drawStaticText();
+        }
+
+        function handleTimers(deltaTime) {
+            if (gameStartTime === 0) {
+                gameStartTime = performance.now();
+            }
+
+            const currentTime = performance.now();
+            const elapsedTime = currentTime - gameStartTime;
+            const isMobile = window.innerWidth < 768;
+
+            if (elapsedTime < OBSTACLE_DELAY) {
+                return; // Ne générez pas d'obstacles pendant les 3 premières secondes
+            }
+
+            obstacleTimer += deltaTime / 1000;
+            if (obstacleTimer > nextObstacleDelay) {
+                if (Math.random() > (isMobile ? 0.5 : 0.3)) { // Réduire la probabilité de générer des obstacles sur mobile
+                    generateObstacle();
+                } else {
+                    generatePlatform();
+                }
+                obstacleTimer = 0;
+                nextObstacleDelay = getRandomObstacleDelay();
+            }
+
+            decorationTimer += deltaTime / 1000;
+            if (decorationTimer > getRandomDecorationDelay()) {
+                generateDecoration();
+                decorationTimer = 0;
+            }
+
+            powerUpTimer += deltaTime / 1000;
+            if (powerUpTimer > POWER_UP_DELAY) {
+                generatePowerUp();
+                powerUpTimer = 0;
+            }
+
+            // Ajout de la génération de nuages
+            if (Math.random() < CLOUD_SPAWN_RATE) {
+                generateCloud();
+            }
+        }
+
+        function getRandomObstacleDelay() {
+            const isMobile = window.innerWidth < 768;
+            const minDelay = isMobile ? 1.2 : 0.7; // Délai minimum plus long sur mobile
+            const maxDelayReduction = level * (isMobile ? 0.05 : 0.1); // Réduction plus lente sur mobile
+            const maxDelay = Math.max(isMobile ? 4 - maxDelayReduction : 3 - maxDelayReduction, minDelay);
+            return Math.random() * (maxDelay - minDelay) + minDelay;
+        }
+
+        function getRandomDecorationDelay() {
+            return Math.random() * (maxDecorationDelay - minDecorationDelay) + minDecorationDelay;
+        }
+
+        function handleTouchStart(event) {
+            event.preventDefault();
+            if (gameOver) return; // Désactiver les contrôles si le jeu est terminé
+            if (!gameStarted) {
+                gameStarted = true;
+                lastTime = performance.now();
+                playBackgroundMusic(); // Jouer la musique de fond au démarrage du jeu
+                gameLoop(lastTime);
+                return;
+            }
+            if (!gameOver && player.jumpCount < 2) {
+                playSound('jump');
+                player.velocityY = -player.jumpPower;
+                player.jumping = true;
+                player.jumpCount++;
+            }
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (gameOver) return; // Désactiver les contrôles si le jeu est terminé
+            if (!gameStarted && event.code === 'Space') {
+                gameStarted = true;
+                lastTime = performance.now();
+                playBackgroundMusic(); // Jouer la musique de fond au démarrage du jeu
+                gameLoop(lastTime);
+                return;
+            }
+            if (event.code === 'Space' && player.jumpCount < 2) {
+                playSound('jump');
+                player.velocityY = -player.jumpPower;
+                player.jumping = true;
+                player.jumpCount++;
+            }
+        });
+
+        canvas.addEventListener('click', handleTouchStart);
+        canvas.addEventListener('touchstart', handleTouchStart);
+
+        function detectCollision(rect1, rect2) {
+            // Si le joueur a un bouclier actif, on ignore la collision avec les obstacles
+            if (rect1.shield && rect2.type === 'obstacle') {
+                return false;
+            }
+
+            const isMobile = window.innerWidth < 768;
+            const playerRadius = rect1.width / 2;
+            const playerCenterX = rect1.x + playerRadius;
+            const playerCenterY = rect1.y + playerRadius;
+
+            // Calcul du point le plus proche sur l'obstacle
+            const closestX = Math.max(rect2.x, Math.min(playerCenterX, rect2.x + rect2.width));
+            const closestY = Math.max(rect2.y, Math.min(playerCenterY, rect2.y + rect2.height));
+
+            // Calcul de la distance entre le centre du joueur et le point le plus proche de l'obstacle
+            const distanceX = playerCenterX - closestX;
+            const distanceY = playerCenterY - closestY;
+            const distanceSquared = (distanceX * distanceX) + (distanceY * distanceY);
+
+            // Augmentation de la marge de tolérance, plus importante sur mobile
+            const collisionRadius = playerRadius * (isMobile ? 0.6 : 0.8); // 40% de tolérance sur mobile, 20% sur desktop
+
+            return distanceSquared < (collisionRadius * collisionRadius);
+        }
+
+        function drawCenteredText(text, fontSize, y) {
+            ctx.font = `${fontSize}px Arial`;
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text, canvas.width / 2, y);
+        }
+
+        function drawGameOver() {
+    // Supprimer tous les éléments UI existants
+    removeGameOverUI();
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Dessiner l'image de mort du joueur centrée
+    const imageSize = 120;
+    const imageX = (canvas.width - imageSize) / 2;
+    const imageY = (canvas.height / 2) - 200 - imageSize / 2;
+    ctx.drawImage(playerDeathImage, imageX, imageY, imageSize, imageSize);
+
+    ctx.font = 'bold 38px Arial';
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Vous avez perdu !', canvas.width / 2, canvas.height / 2 - 100);
+
+    ctx.font = '24px Arial';
+    ctx.fillStyle = 'white';
+    ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 - 50);
+    ctx.fillText(`Pièces: ${coinCount}`, canvas.width / 2, canvas.height / 2 - 10);
+
+    const isMobile = window.innerWidth < 768;
+    const inputTop = isMobile ? canvas.height / 2 + 30 : canvas.height / 2 + 180;
+    const checkboxTop = isMobile ? canvas.height / 2 + 80 : canvas.height / 2 + 230;
+    const submitTop = isMobile ? canvas.height / 2 + 130 : canvas.height / 2 + 280;
+    const replayTop = isMobile ? canvas.height / 2 + 180 : canvas.height / 2 + 330;
+
+    // Formulaire d'entrée d'email
+    const emailInput = createUIElement('input', {
+        type: 'email',
+        placeholder: 'Entrez votre email',
+        style: {
+            position: 'absolute',
+            top: `${inputTop}px`,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: '200px',
+            padding: '5px'
+        }
+    });
+
+    // Conteneur pour la case à cocher et le texte
+    const checkboxContainer = createUIElement('div', {
+        style: {
+            position: 'absolute',
+            top: `${checkboxTop}px`,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'flex-start',
+            width: '300px'
+        }
+    });
+
+    // Case à cocher pour les CGU
+    const cguCheckbox = createUIElement('input', {
+        type: 'checkbox',
+        id: 'cguCheckbox',
+        style: {
+            marginRight: '10px',
+            marginTop: '3px' // Aligner avec la première ligne du texte
+        }
+    });
+    checkboxContainer.appendChild(cguCheckbox);
+
+    // Texte et lien des CGU
+    const cguLabel = createUIElement('label', {
+        htmlFor: 'cguCheckbox',
+        innerHTML: "J'accepte l'enregistrement de mon email tel que prévu dans les <a href='#' target='_blank' style='color: #ff48d9;'>conditions générales d'utilisation du jeu</a>",
+        style: {
+            color: 'white',
+            fontSize: '12px',
+            textAlign: 'left',
+            flex: '1'
+        }
+    });
+    checkboxContainer.appendChild(cguLabel);
+
+    const submitButton = createUIElement('button', {
+        textContent: 'Valider',
+        style: {
+            position: 'absolute',
+            top: `${submitTop}px`,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '5px 10px'
+        },
+        onClick: () => {
+            const email = emailInput.value;
+            if (email && cguCheckbox.checked) {
+                handleScoreSubmission(email, score);
+            } else {
+                alert("Veuillez entrer votre email et accepter les conditions générales d'utilisation.");
+            }
+        }
+    });
+
+    // Bouton rejouer
+    const replayButton = createUIElement('button', {
+        textContent: 'Rejouer',
+        style: {
+            position: 'absolute',
+            top: `${replayTop}px`,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '5px 10px'
+        },
+        onClick: () => {
+            removeGameOverUI();
+            gameOver = false;
+            gameStarted = false;
+            init(); // Réinitialiser le jeu
+        }
+    });
+}
+
+function createUIElement(type, options) {
+    const element = document.createElement(type);
+    if (options.style) {
+        Object.assign(element.style, options.style);
+    }
+    if (options.textContent) {
+        element.textContent = options.textContent;
+    }
+    if (options.innerHTML) {
+        element.innerHTML = options.innerHTML;
+    }
+    if (options.placeholder) {
+        element.placeholder = options.placeholder;
+    }
+    if (options.type) {
+        element.type = options.type;
+    }
+    if (options.id) {
+        element.id = options.id;
+    }
+    if (options.onClick) {
+        element.addEventListener('click', options.onClick);
+    }
+    document.body.appendChild(element);
+    gameOverUIElements.push(element);
+    return element;
+}
+
+    function removeGameOverUI() {
+    gameOverUIElements.forEach(element => {
+        if (element && element.parentNode) {
+            element.parentNode.removeChild(element);
+        }
+    });
+    gameOverUIElements = [];
+}
+
+// Nouvelle fonction pour gérer la soumission du score
+async function handleScoreSubmission(email, score) {
+    try {
+        const response = await fetch('https://0groz69mgl.execute-api.eu-west-3.amazonaws.com/api/register-score', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, score })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            // Masquer seulement l'input email et le bouton valider
+            hideEmailInputAndSubmit();
+            // Afficher le scoreboard en gardant le bouton rejouer visible
+            showScoreboard(data.alias);
+        } else {
+            console.error('Erreur lors de l\'enregistrement du score');
+            // Optionnel : afficher un message d'erreur à l'utilisateur
+        }
+    } catch (error) {
+        console.error('Erreur lors de l\'enregistrement du score', error);
+        // Optionnel : afficher un message d'erreur à l'utilisateur
+    }
+}
+
+// Fonction pour masquer l'input email et le bouton valider
+function hideEmailInputAndSubmit() {
+    gameOverUIElements.forEach(element => {
+        if (element.tagName.toLowerCase() === 'input' || 
+            element.tagName.toLowerCase() === 'div' || // Pour cacher le conteneur de la checkbox
+            (element.tagName.toLowerCase() === 'button' && element.textContent === 'Valider')) {
+            element.style.display = 'none';
+        }
+    });
+}
+
+ async function fetchScoreboard() {
+            try {
+                const response = await fetch('https://0groz69mgl.execute-api.eu-west-3.amazonaws.com/api/scoreboard');
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.scores;
+                } else {
+                    console.error('Erreur lors de la récupération du scoreboard');
+                }
+            } catch (error) {
+                console.error('Erreur lors de la récupération du scoreboard', error);
+            }
+            return [];
+        }
+
+// Mise à jour de la fonction showScoreboard pour ne pas afficher le bouton rejouer
+async function showScoreboard(playerAlias) {
+    const scores = await fetchScoreboard();
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#9999FF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Titre
+    ctx.font = 'bold 38px Arial';
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Scoreboard', canvas.width / 2, 50);
+    
+    // Paramètres du scoreboard
+    const scoreboardWidth = Math.min(400, canvas.width * 0.8); // Largeur maximale de 400px ou 80% de la largeur du canvas
+    const scoreboardLeft = (canvas.width - scoreboardWidth) / 2;
+    const scoreboardTop = 120; // Espace ajouté sous le titre
+    const rowHeight = 30; // Réduction de l'espacement vertical
+    
+    const rankWidth = scoreboardWidth * 0.2;
+    const aliasWidth = scoreboardWidth * 0.5;
+    const scoreWidth = scoreboardWidth * 0.3;
+    
+    const rankX = scoreboardLeft;
+    const aliasX = rankX + rankWidth;
+    const scoreX = aliasX + aliasWidth;
+    
+    // En-têtes de colonne
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 18px Arial'; // Taille de police réduite
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Rank', rankX, scoreboardTop);
+    ctx.fillText('Player', aliasX, scoreboardTop);
+    ctx.fillText('Score', scoreX, scoreboardTop);
+    
+    // Lignes du scoreboard
+    scores.forEach((entry, index) => {
+        const y = scoreboardTop + rowHeight + index * rowHeight;
+        const rank = index + 1;
+        
+        if (entry.alias === playerAlias) {
+            ctx.fillStyle = '#ff48d9';
+            ctx.font = 'bold 16px Arial';
+        } else {
+            ctx.fillStyle = 'white';
+            ctx.font = '16px Arial';
+        }
+        
+        ctx.fillText(`${rank}`, rankX, y);
+        ctx.fillText(`${entry.alias}`, aliasX, y);
+        ctx.fillText(`${entry.score}`, scoreX, y);
+    });
+    
+    // Bordure du scoreboard
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(
+        scoreboardLeft - 10, 
+        scoreboardTop - 10, 
+        scoreboardWidth + 20, 
+        (scores.length + 1) * rowHeight + 20
+    );
+}
+
+        init();
+    </script>
+</body>
+</html>
